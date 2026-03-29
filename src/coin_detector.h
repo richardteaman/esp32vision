@@ -14,6 +14,8 @@ struct CoinDetectionResult {
   const char* error;
   int peak_count;
   float max_score;
+  unsigned long invoke_ms;
+  unsigned long decode_ms;
   unsigned long inference_ms;
   std::size_t arena_used_bytes;
   std::size_t arena_size_bytes;

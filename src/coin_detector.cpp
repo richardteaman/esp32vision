@@ -184,6 +184,9 @@ bool begin() {
   g_last_error = "";
   g_last_result.arena_used_bytes = g_interpreter->arena_used_bytes();
   g_last_result.arena_size_bytes = kTensorArenaSize;
+  g_last_result.invoke_ms = 0;
+  g_last_result.decode_ms = 0;
+  g_last_result.inference_ms = 0;
   g_last_result.ok = true;
   g_last_result.error = "";
   Serial.printf("Detector tensors allocated: %u / %u bytes\n",
@@ -217,16 +220,19 @@ bool run() {
     return false;
   }
 
-  const unsigned long started_at = millis();
+  const unsigned long invoke_started_at = millis();
   if (g_interpreter->Invoke() != kTfLiteOk) {
     set_error("Invoke failed");
     return false;
   }
 
-  g_last_result.inference_ms = millis() - started_at;
+  const unsigned long decode_started_at = millis();
+  g_last_result.invoke_ms = decode_started_at - invoke_started_at;
   g_last_result.arena_used_bytes = g_interpreter->arena_used_bytes();
   g_last_result.arena_size_bytes = kTensorArenaSize;
   decode_output();
+  g_last_result.decode_ms = millis() - decode_started_at;
+  g_last_result.inference_ms = g_last_result.invoke_ms + g_last_result.decode_ms;
   g_last_error = "";
   return true;
 }
