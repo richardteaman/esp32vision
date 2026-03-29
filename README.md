@@ -153,7 +153,31 @@ cd /home/richt/Documents/PlatformIO/Projects/esp32vision
 - `tools/scripts/diagnostics/<timestamp>/frames/...`
 - `tools/scripts/diagnostics/<timestamp>/overlays/...`
 
-## ДЗ 2-4
+## ДЗ 1-4
+
+### ДЗ 1. Выбор проекта и датасет
+
+Что сделано:
+
+- выбран проект детекции монет на `ESP32-CAM`
+- основной датасет хранится прямо в репозитории в `esp32-cam-coin_detection-export/`
+- датасет уже разбит на `training/` и `testing/`
+- этот датасет используется как единый источник для локальной подготовки выборки, обучения, оценки и прошивки
+
+Как проверить:
+
+```bash
+cd /home/richt/Documents/PlatformIO/Projects/esp32vision
+find esp32-cam-coin_detection-export -type f | wc -l
+du -sh esp32-cam-coin_detection-export
+```
+
+Что должно подтвердиться:
+
+- датасет лежит прямо в этой репе
+- отдельная репа под датасет не нужна
+- в `esp32-cam-coin_detection-export/` есть `training/` и `testing/`
+- размер датасета небольшой и подходит для хранения вместе с кодом
 
 ### ДЗ 2. Первичный датасет и первая модель
 
