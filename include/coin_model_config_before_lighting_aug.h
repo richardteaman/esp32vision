@@ -1,6 +1,6 @@
 #pragma once
 
-// Auto-generated from: /home/richt/Documents/HSE_2/esp32/esp32vision/ml/outputs/baseline_rgb_hard_light_aug/model_int8.tflite
+// Auto-generated from: /home/richt/Documents/PlatformIO/Projects/esp32vision/ml/outputs/baseline_rgb_hard_ref/model_int8.tflite
 
 #include <cstddef>
 #include <cstdint>
@@ -22,9 +22,9 @@ constexpr int kInputZeroPoint = -128;
 constexpr float kOutputScale = 0.0039062500f;
 constexpr int kOutputZeroPoint = -128;
 
-constexpr float kDetectionThreshold = 0.3000f;
+constexpr float kDetectionThreshold = 0.3500f;
 constexpr int kPeakWindow = 1;
-constexpr int kPeakMinDistanceCells = 1;
+constexpr int kPeakMinDistanceCells = 2;
 constexpr int kMatchRadiusCells = 1;
 
 }  // namespace coin_model

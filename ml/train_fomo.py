@@ -36,6 +36,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--brightness-delta", type=float, default=0.12)
     parser.add_argument("--contrast-lower", type=float, default=0.85)
     parser.add_argument("--contrast-upper", type=float, default=1.15)
+    parser.add_argument("--exposure-lower", type=float, default=1.0)
+    parser.add_argument("--exposure-upper", type=float, default=1.0)
+    parser.add_argument("--gamma-lower", type=float, default=1.0)
+    parser.add_argument("--gamma-upper", type=float, default=1.0)
+    parser.add_argument("--saturation-lower", type=float, default=1.0)
+    parser.add_argument("--saturation-upper", type=float, default=1.0)
+    parser.add_argument("--hue-delta", type=float, default=0.0)
+    parser.add_argument("--channel-scale-max-delta", type=float, default=0.0)
+    parser.add_argument("--shadow-prob", type=float, default=0.0)
+    parser.add_argument("--shadow-strength-max", type=float, default=0.0)
     parser.add_argument("--max-train-samples", type=int, default=0)
     parser.add_argument("--max-test-samples", type=int, default=0)
     return parser.parse_args()
@@ -44,6 +54,27 @@ def parse_args() -> argparse.Namespace:
 def load_records(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    def require_range(name: str, lower: float, upper: float) -> None:
+        if lower <= upper:
+            return
+        raise ValueError(f"{name} lower bound must not exceed upper bound.")
+
+    require_range("contrast", args.contrast_lower, args.contrast_upper)
+    require_range("exposure", args.exposure_lower, args.exposure_upper)
+    require_range("gamma", args.gamma_lower, args.gamma_upper)
+    require_range("saturation", args.saturation_lower, args.saturation_upper)
+
+    if args.hue_delta < 0.0:
+        raise ValueError("hue_delta must be non-negative.")
+    if args.channel_scale_max_delta < 0.0:
+        raise ValueError("channel_scale_max_delta must be non-negative.")
+    if not 0.0 <= args.shadow_prob <= 1.0:
+        raise ValueError("shadow_prob must be within [0, 1].")
+    if args.shadow_strength_max < 0.0:
+        raise ValueError("shadow_strength_max must be non-negative.")
 
 
 def split_train_val(
@@ -158,8 +189,29 @@ def build_loss(loss_name: str):
     return tf.keras.losses.BinaryCrossentropy()
 
 
-def make_train_dataset(x_data: np.ndarray, y_data: np.ndarray, args: argparse.Namespace):
+def build_augment_fn(args: argparse.Namespace):
     import tensorflow as tf
+
+    def maybe_apply_shadow(image):
+        if args.shadow_prob <= 0.0 or args.shadow_strength_max <= 0.0:
+            return image
+
+        def apply_shadow():
+            height = tf.shape(image)[0]
+            width = tf.shape(image)[1]
+            yy = tf.linspace(0.0, 1.0, height)
+            xx = tf.linspace(0.0, 1.0, width)
+            grid_y, grid_x = tf.meshgrid(yy, xx, indexing="ij")
+            angle = tf.random.uniform((), 0.0, 2.0 * np.pi, dtype=tf.float32)
+            direction = tf.cos(angle) * (grid_x - 0.5) + tf.sin(angle) * (grid_y - 0.5)
+            transition = tf.random.uniform((), 4.0, 10.0, dtype=tf.float32)
+            offset = tf.random.uniform((), -0.2, 0.2, dtype=tf.float32)
+            shadow = tf.sigmoid(-(direction - offset) * transition)
+            strength = tf.random.uniform((), 0.0, args.shadow_strength_max, dtype=tf.float32)
+            mask = 1.0 - strength * shadow
+            return image * mask[..., tf.newaxis]
+
+        return tf.cond(tf.random.uniform((), dtype=tf.float32) < args.shadow_prob, apply_shadow, lambda: image)
 
     def augment(image, target):
         flip_lr = tf.random.uniform(()) > 0.5
@@ -168,16 +220,65 @@ def make_train_dataset(x_data: np.ndarray, y_data: np.ndarray, args: argparse.Na
         target = tf.cond(flip_lr, lambda: tf.image.flip_left_right(target), lambda: target)
         image = tf.cond(flip_ud, lambda: tf.image.flip_up_down(image), lambda: image)
         target = tf.cond(flip_ud, lambda: tf.image.flip_up_down(target), lambda: target)
+
+        if args.exposure_lower != 1.0 or args.exposure_upper != 1.0:
+            exposure = tf.random.uniform(
+                (),
+                minval=args.exposure_lower,
+                maxval=args.exposure_upper,
+                dtype=tf.float32,
+            )
+            image = image * exposure
+
         image = tf.image.random_brightness(image, max_delta=args.brightness_delta)
         image = tf.image.random_contrast(
             image,
             lower=args.contrast_lower,
             upper=args.contrast_upper,
         )
+
+        if args.color_mode == "rgb":
+            if args.saturation_lower != 1.0 or args.saturation_upper != 1.0:
+                image = tf.image.random_saturation(
+                    image,
+                    lower=args.saturation_lower,
+                    upper=args.saturation_upper,
+                )
+            if args.hue_delta > 0.0:
+                image = tf.image.random_hue(image, max_delta=args.hue_delta)
+            if args.channel_scale_max_delta > 0.0:
+                channel_scales = tf.random.uniform(
+                    (1, 1, 3),
+                    minval=1.0 - args.channel_scale_max_delta,
+                    maxval=1.0 + args.channel_scale_max_delta,
+                    dtype=tf.float32,
+                )
+                image = image * channel_scales
+
+        image = tf.clip_by_value(image, 0.0, 1.0)
+
+        if args.gamma_lower != 1.0 or args.gamma_upper != 1.0:
+            gamma = tf.random.uniform(
+                (),
+                minval=args.gamma_lower,
+                maxval=args.gamma_upper,
+                dtype=tf.float32,
+            )
+            image = tf.pow(tf.clip_by_value(image, 1e-4, 1.0), gamma)
+
+        image = maybe_apply_shadow(image)
+
         noise = tf.random.normal(tf.shape(image), stddev=args.noise_std)
         image = tf.clip_by_value(image + noise, 0.0, 1.0)
         return image, target
 
+    return augment
+
+
+def make_train_dataset(x_data: np.ndarray, y_data: np.ndarray, args: argparse.Namespace):
+    import tensorflow as tf
+
+    augment = build_augment_fn(args)
     dataset = tf.data.Dataset.from_tensor_slices((x_data, y_data))
     dataset = dataset.shuffle(len(x_data), seed=args.seed, reshuffle_each_iteration=True)
     dataset = dataset.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
@@ -193,6 +294,7 @@ def save_json(path: Path, payload: dict) -> None:
 
 def main() -> None:
     args = parse_args()
+    validate_args(args)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     random.seed(args.seed)
@@ -275,12 +377,24 @@ def main() -> None:
     eval_metrics = model.evaluate(x_val, y_val, verbose=0, return_dict=True)
     model.save(args.output_dir / "final.keras")
 
+    trainable_params = int(
+        sum(np.prod(variable.shape) for variable in model.trainable_weights)
+    )
+    non_trainable_params = int(
+        sum(np.prod(variable.shape) for variable in model.non_trainable_weights)
+    )
+
     save_json(
         args.output_dir / "run_summary.json",
         {
             "args": {
                 key: str(value) if isinstance(value, Path) else value
                 for key, value in vars(args).items()
+            },
+            "model_meta": {
+                "total_params": int(model.count_params()),
+                "trainable_params": trainable_params,
+                "non_trainable_params": non_trainable_params,
             },
             "train_meta": train_meta,
             "val_meta": val_meta,

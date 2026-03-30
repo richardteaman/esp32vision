@@ -7,8 +7,12 @@
 #include "coin_model_config.h"
 #include "coin_detector.h"
 
-const char* ssid = "home2Ghz_EXT";
-const char* password = "5d7030a0e0673640f72f938b67";
+//const char* ssid = "home2Ghz_EXT";
+//const char* password = "5d7030a0e0673640f72f938b67";
+
+
+const char* ssid = "Nothing_Phone_2";
+const char* password = "qazwsx123";
 
 WebServer server(80);
 

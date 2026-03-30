@@ -118,6 +118,53 @@ python3 export_firmware_bundle_ref.py
 - `include/coin_model_config.h`
 - `include/coin_model_data.h`
 
+### 5. Эксперимент На Устойчивость К Освещению
+
+Если модель на реальной камере начинает недосчитывать монеты при других условиях света,
+лучше не генерировать один фиксированный "аугментированный датасет" на диск, а усилить
+on-the-fly аугментации во время обучения. Тогда на каждом epoch модель видит новые варианты
+того же кадра.
+
+Для отдельного lighting-robust прогона:
+
+```bash
+cd /home/richt/Documents/PlatformIO/Projects/esp32vision/ml
+python3 train_fomo_lighting_ref.py
+python3 eval_fomo_lighting_ref.py
+```
+
+Что усиливается в этом эксперименте:
+
+- exposure / общая яркость
+- gamma / нелинейное затемнение и пересвет
+- contrast
+- saturation и hue
+- per-channel color scaling
+- random shadow mask
+- gaussian noise
+
+Что смотреть после обучения:
+
+- `ml/outputs/baseline_rgb_hard_light_aug/run_summary.json`
+- `ml/outputs/baseline_rgb_hard_light_aug_eval_peaks/summary.json`
+- `ml/outputs/baseline_rgb_hard_light_aug_eval_peaks/previews/...`
+
+В `run_summary.json` теперь дополнительно сохраняются:
+
+- `model_meta.total_params`
+- `model_meta.trainable_params`
+- `model_meta.non_trainable_params`
+
+Если новый прогон выигрывает по качеству на реальных кадрах, дальше можно собрать новую
+`int8` модель и обновить firmware bundle:
+
+```bash
+cd /home/richt/Documents/PlatformIO/Projects/esp32vision/ml
+python3 export_tflite_lighting_ref.py
+python3 eval_tflite_lighting_ref.py
+python3 export_firmware_bundle_lighting_ref.py
+```
+
 ## Firmware И Проверка На ESP32-CAM
 
 Часть со сборкой через PlatformIO предполагается ручной в VS Code.
@@ -276,3 +323,50 @@ python3 export_firmware_bundle_ref.py
 - сам `Invoke()` занимает примерно `15.6 s`
 
 То есть следующий этап оптимизации бдуeт связан уже не с датасетом, а с runtime/backend для инференса на ESP32.
+
+## Update: Lighting-Robust Retrain
+
+После дополнительных тестов на реальной камере в разных условиях освещения выяснилось,
+что прежняя версия модели всё ещё могла заметно недосчитывать монеты: в сложных сценах
+с изменённой яркостью и цветовым тоном модель иногда видела `2-3` монеты вместо `5-6`.
+
+Что было изменено:
+
+- добавлен отдельный retrain с усиленными on-the-fly photometric аугментациями:
+  `exposure`, `gamma`, `brightness`, `contrast`, `saturation`, `hue`,
+  `per-channel color scaling`, `random shadow mask`, `gaussian noise`
+- сохранён rollback-резерв предыдущего firmware bundle:
+  `include/coin_model_config_before_lighting_aug.h`
+  `include/coin_model_data_before_lighting_aug.h`
+- для новой модели firmware postprocessing выровнен с offline-eval:
+  `threshold = 0.30`, `peak_min_distance_cells = 1`
+
+Новые метрики новой lighting-robust модели:
+
+- `Keras / held-out test`:
+  `precision 0.9468`, `recall 0.8387`, `F1 0.8895`
+- `int8 TFLite / held-out test`:
+  `precision 0.9391`, `recall 0.8412`, `F1 0.8874`
+- размер deploy-модели:
+  `59840 bytes` (`~58.4 KB`)
+- число параметров:
+  `47617 total`, `47281 trainable`, `336 non-trainable`
+
+Для сравнения, прежний baseline давал примерно:
+
+- `Keras / held-out test`: `precision 0.941`, `recall 0.831`, `F1 0.883`
+- `int8 TFLite / held-out test`: `precision 0.941`, `recall 0.834`, `F1 0.884`
+
+Почему новый retrain помог:
+
+- train-time distribution стала ближе к реальным кадрам с ESP32-CAM
+- модель стала лучше переносить перепады яркости, локальные тени и цветовой сдвиг
+- postprocessing на устройстве перестал быть жёстче, чем offline-eval
+
+Итог по живым тестам:
+
+- после lighting-robust retrain модель стала заметно стабильнее считать монеты
+  при разных условиях освещения
+- обновлённая версия уже записана в `include/coin_model_config.h`
+  и `include/coin_model_data.h`
+- при необходимости можно быстро откатиться на предыдущую версию через backup-файлы

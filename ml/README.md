@@ -99,6 +99,8 @@ Notes:
 - Default loss is `focal`, because positive cells are sparse and plain BCE tends to collapse to all-background predictions.
 - Recommended baseline target mode is `hard`.
 - Augmentations are enabled during training: horizontal/vertical flips, brightness, contrast and small Gaussian noise.
+- The train script also supports stronger lighting robustness augmentation: exposure, gamma, saturation, hue, per-channel color scaling and random shadow masks.
+- Augmentations are generated on the fly during training, so you do not need to pre-render a separate augmented dataset on disk.
 
 That is a local analogue of the FOMO idea and is realistic for ESP32-class deployment.
 
@@ -187,8 +189,11 @@ The project now includes an intermediate deploy step in firmware:
 - `train_fomo1.py` / `eval_fomo1.py`: current best baseline
 - `train_fomo2.py` / `eval_fomo2.py`: denser-grid experiment for crowded scenes
 - `train_fomo_ref.py` / `eval_fomo_ref.py`: fixed reference baseline
+- `train_fomo_lighting_ref.py` / `eval_fomo_lighting_ref.py`: stronger lighting/color augmentation for camera robustness
 - `export_tflite_ref.py` / `eval_tflite_ref.py`: fixed reference int8 export and eval
+- `export_tflite_lighting_ref.py` / `eval_tflite_lighting_ref.py`: int8 export and eval for the lighting-robust run
 - `export_firmware_bundle_ref.py`: generate `include/coin_model_config.h` and `include/coin_model_data.h`
+- `export_firmware_bundle_lighting_ref.py`: generate firmware headers from the lighting-robust int8 model
 
 ## What to check after the first run
 
